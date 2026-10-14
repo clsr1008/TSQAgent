@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from pathlib import Path
 
 import torch
@@ -40,6 +41,12 @@ from meta_learning_rater.dataset import (
 from meta_learning_rater.model import ScoreModel, BradleyTerryLoss
 
 
+def _synchronize_cuda_if_needed(device: str) -> None:
+    """Flush queued CUDA work so adaptation timing includes GPU execution."""
+    if device.startswith("cuda") and torch.cuda.is_available():
+        torch.cuda.synchronize()
+
+
 def load_score_model(
     checkpoint_path: str | Path,
     input_dim: int,
@@ -48,9 +55,35 @@ def load_score_model(
     device: str = "cpu",
 ) -> ScoreModel:
     model = ScoreModel(input_dim, hidden_dim, num_layers)
-    state = torch.load(checkpoint_path, map_location="cpu")
+    checkpoint = torch.load(checkpoint_path, map_location="cpu")
+    # New per-dataset checkpoints store the normalisation fitted during
+    # training.  Older meta-rater checkpoints are plain state_dict objects and
+    # deliberately remain supported.
+    if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
+        state = checkpoint["state_dict"]
+        normalization = checkpoint.get("embedding_normalization")
+    else:
+        state = checkpoint
+        normalization = None
     model.load_state_dict(state)
+    model.embedding_normalization = normalization
     return model.to(device)
+
+
+def _normalize_embeddings_for_checkpoint(
+    embeddings: dict[int, torch.Tensor],
+    model: ScoreModel,
+) -> dict[int, torch.Tensor]:
+    """Apply the training-time embedding normalisation, if the checkpoint has it."""
+    normalization = getattr(model, "embedding_normalization", None)
+    if not normalization:
+        return embeddings
+    mean = torch.as_tensor(normalization["mean"], dtype=torch.float32, device="cpu")
+    std = torch.as_tensor(normalization["std"], dtype=torch.float32, device="cpu").clamp(min=1e-6)
+    if mean.ndim != 1 or std.shape != mean.shape:
+        raise ValueError("Checkpoint embedding_normalization has invalid shapes.")
+    print("Applying checkpoint embedding normalization …")
+    return {index: (embedding - mean) / std for index, embedding in embeddings.items()}
 
 
 def few_shot_adapt(
@@ -61,21 +94,24 @@ def few_shot_adapt(
     adaptation_lr: float = 5e-3,
     few_shot_n: int = 20,
     device: str = "cpu",
-) -> ScoreModel:
-    """Fine-tune model on a few labeled pairs from this dataset."""
+) -> tuple[ScoreModel, float]:
+    """Fine-tune on a few pairs and return the pure update-loop duration."""
     import copy
     from torch.utils.data import DataLoader
 
     model = copy.deepcopy(model).to(device)
     dataset = PairwiseDataset(embeddings, pairs[:few_shot_n])
     if len(dataset) == 0:
-        return model
+        return model, 0.0
 
     loader = DataLoader(dataset, batch_size=1, shuffle=True)
     optimizer = torch.optim.Adam(model.parameters(), lr=adaptation_lr)
     loss_fn = BradleyTerryLoss()
     model.train()
 
+    # CUDA is asynchronous; synchronize to measure only the gradient updates.
+    _synchronize_cuda_if_needed(device)
+    adaptation_start = time.perf_counter()
     for _ in range(adaptation_steps):
         for emb_a, emb_b, p in loader:
             emb_a = emb_a.to(device)
@@ -85,8 +121,9 @@ def few_shot_adapt(
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+    _synchronize_cuda_if_needed(device)
 
-    return model
+    return model, time.perf_counter() - adaptation_start
 
 
 def score_dataset(
@@ -100,6 +137,7 @@ def score_dataset(
     adaptation_lr: float = 5e-3,
     few_shot_n: int = 20,
     device: str | None = None,
+    score_batch_size: int = 1024,
 ) -> None:
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -115,36 +153,43 @@ def score_dataset(
 
     print(f"Loading ScoreModel from {checkpoint_path} …")
     model = load_score_model(checkpoint_path, input_dim, hidden_dim, num_layers, device)
+    embeddings = _normalize_embeddings_for_checkpoint(embeddings, model)
 
     # Optional: few-shot adapt on this dataset's annotation
     if annotation_path and Path(annotation_path).exists():
         pairs = load_annotation(annotation_path)
         if pairs:
             print(f"Few-shot adapting on {min(few_shot_n, len(pairs))} pairs …")
-            model = few_shot_adapt(
+            model, adaptation_elapsed = few_shot_adapt(
                 model, pairs, embeddings,
                 adaptation_steps=adaptation_steps,
                 adaptation_lr=adaptation_lr,
                 few_shot_n=few_shot_n,
                 device=device,
             )
+            print(f"Few-shot adaptation loop time: {adaptation_elapsed:.2f} s "
+                  f"({adaptation_elapsed / 60:.2f} min)")
 
     # Score all series
     model.eval()
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    if score_batch_size <= 0:
+        raise ValueError("score_batch_size must be positive.")
     all_indices = [r["index"] for r in blocks]
-    all_embs = torch.stack([embeddings[i] for i in all_indices]).to(device)
-
+    n_scored = 0
     with torch.no_grad():
-        scores = model(all_embs).cpu().tolist()
+        with open(output_path, "w", encoding="utf-8") as f:
+            for start in range(0, len(all_indices), score_batch_size):
+                batch_indices = all_indices[start:start + score_batch_size]
+                batch_embs = torch.stack([embeddings[index] for index in batch_indices]).to(device)
+                scores = model(batch_embs).cpu().tolist()
+                for index, score in zip(batch_indices, scores):
+                    f.write(json.dumps({"index": index, "quality_score": score}) + "\n")
+                    n_scored += 1
 
-    with open(output_path, "w", encoding="utf-8") as f:
-        for idx, score in zip(all_indices, scores):
-            f.write(json.dumps({"index": idx, "quality_score": score}) + "\n")
-
-    print(f"Scores saved → {output_path}  ({len(scores)} records)")
+    print(f"Scores saved → {output_path}  ({n_scored} records)")
 
 
 def score_all_datasets(
@@ -156,6 +201,7 @@ def score_all_datasets(
     adaptation_lr: float = 5e-3,
     few_shot_n: int = 20,
     device: str | None = None,
+    score_batch_size: int = 1024,
 ) -> None:
     """Score all datasets listed in a dataset_configs.json.
 
@@ -188,6 +234,7 @@ def score_all_datasets(
             adaptation_lr=adaptation_lr,
             few_shot_n=few_shot_n,
             device=device,
+            score_batch_size=score_batch_size,
         )
 
     print("\nAll datasets scored.")
@@ -213,6 +260,8 @@ def main() -> None:
     parser.add_argument("--adapt_steps", type=int, default=10)
     parser.add_argument("--adapt_lr",    type=float, default=5e-3)
     parser.add_argument("--few_shot_n",  type=int, default=20)
+    parser.add_argument("--score_batch_size", type=int, default=1024,
+                        help="Number of embeddings per rater forward pass")
     parser.add_argument("--device",      default=None)
     args = parser.parse_args()
 
@@ -246,6 +295,7 @@ def main() -> None:
                     adaptation_lr=args.adapt_lr,
                     few_shot_n=args.few_shot_n,
                     device=args.device,
+                    score_batch_size=args.score_batch_size,
                 )
         else:
             score_all_datasets(
@@ -257,6 +307,7 @@ def main() -> None:
                 adaptation_lr=args.adapt_lr,
                 few_shot_n=args.few_shot_n,
                 device=args.device,
+                score_batch_size=args.score_batch_size,
             )
     elif args.blocks:
         if not args.model:
@@ -274,6 +325,7 @@ def main() -> None:
             adaptation_lr=args.adapt_lr,
             few_shot_n=args.few_shot_n,
             device=args.device,
+            score_batch_size=args.score_batch_size,
         )
     else:
         parser.error("Provide either --blocks (single dataset) or --config (batch mode)")

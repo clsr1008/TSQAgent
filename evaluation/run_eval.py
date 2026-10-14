@@ -39,6 +39,10 @@ python -m evaluation.run_eval --task classification
 
 # Single dataset
 python -m evaluation.run_eval --task long_term_forecast --dataset electricity
+
+# Single dataset with a versioned TSRater score file
+python -m evaluation.run_eval --task classification --dataset MedicalImages \
+    --score_file datasets/MedicalImages/scores_tsrater_ltf4.jsonl
 """
 from __future__ import annotations
 
@@ -351,6 +355,8 @@ def main() -> None:
                         help="Evaluation task")
     parser.add_argument("--dataset", type=str, default=None,
                         help="Run only this dataset (default: run all for the task)")
+    parser.add_argument("--score_file", type=str, default=None,
+                        help="Override the quality-score file for one dataset; requires --dataset")
     parser.add_argument("--models", type=str, nargs="+",
                         default=["Linear", "CNN", "PatchTST"],
                         help="Models to evaluate")
@@ -360,7 +366,7 @@ def main() -> None:
                              "DataOob, DataShapley, KNNShapley, TimeInf")
     parser.add_argument("--proportion", type=float, default=0.5,
                         help="Fraction of training data to select (default: 0.5)")
-    parser.add_argument("--itr", type=int, default=5, help="Repeat experiments N times")
+    parser.add_argument("--itr", type=int, default=10, help="Repeat experiments N times")
     parser.add_argument("--seed", type=int, default=2021)
 
     # Training hyperparams
@@ -435,6 +441,17 @@ def main() -> None:
         dataset_configs = {args.dataset: all_configs[args.dataset]}
     else:
         dataset_configs = all_configs
+
+    # A versioned score file is meaningful only for a single dataset; otherwise
+    # each dataset would incorrectly read the same score vector.
+    if args.score_file:
+        if not args.dataset:
+            parser.error("--score_file requires --dataset")
+        if not Path(args.score_file).is_file():
+            parser.error(f"Score file not found: {args.score_file}")
+        dataset_configs = {
+            args.dataset: {**dataset_configs[args.dataset], "score_file": args.score_file}
+        }
 
     # Run
     results = run_task(

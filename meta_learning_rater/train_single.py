@@ -53,6 +53,7 @@ def train_rater(
     train_ratio: float = 0.8,
     min_confidence: float = 0.0,
     device: str = "cpu",
+    seed: int = 42,
 ) -> float:
     """
     Train a single Bradley-Terry rater on one dataset.
@@ -64,13 +65,6 @@ def train_rater(
         print(f"  [skip] {annotation_path} — only {len(pairs)} valid pairs after filtering")
         return 0.0
 
-    # Pair augmentation: add symmetric pairs (swap A↔B, flip p) before split
-    augmented = pairs + [
-        {**r, "block_a": r["block_b"], "block_b": r["block_a"],
-         "comparisons_avg": 1.0 - r["comparisons_avg"]}
-        for r in pairs
-    ]
-
     blocks = load_blocks(blocks_path)
     embeddings = compute_embeddings(moment_model, blocks, device=device)
 
@@ -80,25 +74,53 @@ def train_rater(
     std  = all_embs.std(0).clamp(min=1e-6)
     embeddings = {k: (v - mean) / std for k, v in embeddings.items()}
 
-    dataset = PairwiseDataset(embeddings, augmented)
-    if len(dataset) < 10:
-        print(f"  [skip] only {len(dataset)} usable pairs")
+    # Split original pairs before adding their mirrored copies.  Otherwise a
+    # pair and its exact inverse can land on opposite sides of the split,
+    # inflating the printed held-out accuracy.
+    usable_pairs = [
+        pair for pair in pairs
+        if pair["block_a"] in embeddings and pair["block_b"] in embeddings
+    ]
+    if len(usable_pairs) < 10:
+        print(f"  [skip] only {len(usable_pairs)} usable pairs")
         return 0.0
-    print(f"  {len(pairs)} pairs → {len(dataset)} after augmentation")
 
     # ── Train / test split ────────────────────────────────────────────────────
-    n_train = int(len(dataset) * train_ratio)
-    n_test  = len(dataset) - n_train
+    n_train = int(len(usable_pairs) * train_ratio)
+    n_test  = len(usable_pairs) - n_train
     if n_test < 1:
         n_test = 1
-        n_train = len(dataset) - 1
+        n_train = len(usable_pairs) - 1
 
-    train_set, test_set = random_split(dataset, [n_train, n_test])
-    train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True,  num_workers=0)
-    test_loader  = DataLoader(test_set,  batch_size=batch_size, shuffle=False, num_workers=0)
+    train_pairs, test_pairs = random_split(
+        usable_pairs,
+        [n_train, n_test],
+        generator=torch.Generator().manual_seed(seed),
+    )
+
+    def add_mirrors(rows):
+        rows = list(rows)
+        return rows + [
+            {**row, "block_a": row["block_b"], "block_b": row["block_a"],
+             "comparisons_avg": 1.0 - row["comparisons_avg"]}
+            for row in rows
+        ]
+
+    train_dataset = PairwiseDataset(embeddings, add_mirrors(train_pairs))
+    test_dataset = PairwiseDataset(embeddings, add_mirrors(test_pairs))
+    if len(train_dataset) == 0 or len(test_dataset) == 0:
+        print("  [skip] train/test split contains no usable pairs")
+        return 0.0
+    print(
+        f"  {len(usable_pairs)} pairs → train={len(train_dataset)} / "
+        f"test={len(test_dataset)} after symmetric augmentation"
+    )
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+    test_loader  = DataLoader(test_dataset,  batch_size=batch_size, shuffle=False, num_workers=0)
 
     # ── Model ─────────────────────────────────────────────────────────────────
-    input_dim = next(iter(dataset))[0].shape[0]
+    input_dim = next(iter(train_dataset))[0].shape[0]
     model     = ScoreModel(input_dim, hidden_dim, num_layers).to(device)
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
@@ -142,7 +164,22 @@ def train_rater(
     # ── Save ──────────────────────────────────────────────────────────────────
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(model.state_dict(), output_path)
+    # Persist the embedding normalisation used above.  ``score.py`` also
+    # accepts the legacy bare state_dict format, so existing checkpoints remain
+    # usable.  Keeping this metadata is essential for newly-trained raters.
+    torch.save({
+        "schema_version": 2,
+        "state_dict": model.state_dict(),
+        "embedding_normalization": {
+            "mean": mean.cpu(),
+            "std": std.cpu(),
+        },
+        "architecture": {
+            "input_dim": input_dim,
+            "hidden_dim": hidden_dim,
+            "num_layers": num_layers,
+        },
+    }, output_path)
     print(f"  Saved → {output_path}")
     return acc
 
@@ -172,6 +209,7 @@ def main() -> None:
     parser.add_argument("--train_ratio",    type=float, default=0.8)
     parser.add_argument("--min_confidence", type=float, default=0.5)
     parser.add_argument("--device",         type=str,   default=None)
+    parser.add_argument("--seed",           type=int,   default=42)
 
     args = parser.parse_args()
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -212,6 +250,7 @@ def main() -> None:
                 train_ratio=args.train_ratio,
                 min_confidence=args.min_confidence,
                 device=device,
+                seed=args.seed,
             )
             results[name] = acc
 
@@ -238,6 +277,7 @@ def main() -> None:
             train_ratio=args.train_ratio,
             min_confidence=args.min_confidence,
             device=device,
+            seed=args.seed,
         )
     else:
         parser.error("Provide either --config (batch) or both --blocks and --annotation (single)")

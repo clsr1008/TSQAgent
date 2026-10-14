@@ -13,6 +13,20 @@ from __future__ import annotations
 
 from workflow import run_pipeline
 from config import Config, build_llm, build_perceiver_llm
+from models.llm import BaseLLM
+
+
+def _compact_dimension_results(dimension_results: list[dict]) -> list[dict]:
+    """Keep the structured Inspector outputs needed for later audit.
+
+    The full ``messages`` field contains the entire ReAct conversation (including
+    repeated previews and tool observations) and is prohibitively large for a
+    dataset-level annotation file.  The compact form retains the conclusion and
+    the decisive tool evidence, which are sufficient to inspect or aggregate a
+    dimension-level judgement.
+    """
+    fields = ("dimension", "winner", "confidence", "evidence", "conclusion")
+    return [{key: result.get(key) for key in fields} for result in dimension_results]
 
 
 def winner_to_comparisons_avg(winner: str, confidence: float) -> float:
@@ -41,6 +55,7 @@ def annotate_pair(
     series_b: list[float],
     dataset_description: str,
     config: Config,
+    save_dimension_results: bool = False,
 ) -> dict:
     """
     Run the full agent pipeline on one pair and return a result record.
@@ -53,16 +68,49 @@ def annotate_pair(
       confidence              — float [0, 1]
       comparisons_avg         — float [0, 1], BT-compatible
       explanation             — str
+      planned_dimensions      — Perceiver's selected dimensions (optional)
+      perception_summary      — Perceiver's comparison summary (optional)
+      dimension_results       — compact Inspector results (optional)
       error                   — str | None  (set when pipeline raises)
+    """
+    llm = build_llm(config)
+    perceiver_llm = build_perceiver_llm(config)
+    return annotate_pair_with_clients(
+        index_a=index_a,
+        series_a=series_a,
+        index_b=index_b,
+        series_b=series_b,
+        dataset_description=dataset_description,
+        config=config,
+        llm=llm,
+        perceiver_llm=perceiver_llm,
+        save_dimension_results=save_dimension_results,
+    )
+
+
+def annotate_pair_with_clients(
+    index_a: int,
+    series_a: list[float],
+    index_b: int,
+    series_b: list[float],
+    dataset_description: str,
+    config: Config,
+    llm: BaseLLM,
+    perceiver_llm: BaseLLM,
+    save_dimension_results: bool = False,
+) -> dict:
+    """Run one pair using already-created model clients.
+
+    Batch evaluation uses this variant so that repeated pairs share the same
+    configured OpenAI-compatible clients instead of reconstructing them for
+    every request.  It otherwise has identical output semantics to
+    :func:`annotate_pair`.
     """
     input_data = {
         "dataset_description": dataset_description,
         "series_A": series_a,
         "series_B": series_b,
     }
-
-    llm = build_llm(config)
-    perceiver_llm = build_perceiver_llm(config)
 
     try:
         final_state = run_pipeline(input_data, llm, config, perceiver_llm=perceiver_llm)
@@ -71,7 +119,7 @@ def annotate_pair(
         confidence = float(result.get("confidence", 0.0))
         explanation = result.get("explanation", "")
     except Exception as exc:
-        return {
+        record = {
             "block_a": index_a,
             "block_b": index_b,
             "winner": "tie",
@@ -80,10 +128,17 @@ def annotate_pair(
             "explanation": "",
             "error": str(exc),
         }
+        if save_dimension_results:
+            record.update({
+                "planned_dimensions": [],
+                "perception_summary": "",
+                "dimension_results": [],
+            })
+        return record
 
     comparisons_avg = winner_to_comparisons_avg(winner, confidence)
 
-    return {
+    record = {
         "block_a": index_a,
         "block_b": index_b,
         "winner": winner,
@@ -92,3 +147,12 @@ def annotate_pair(
         "explanation": explanation,
         "error": None,
     }
+    if save_dimension_results:
+        record.update({
+            "planned_dimensions": final_state.get("planned_dimensions", []),
+            "perception_summary": final_state.get("perception_summary", ""),
+            "dimension_results": _compact_dimension_results(
+                final_state.get("dimension_results", [])
+            ),
+        })
+    return record

@@ -21,21 +21,19 @@ Usage:
     # start LoRA checkpoint
     CUDA_VISIBLE_DEVICES=2 vllm serve Qwen/Qwen3-4B \
     --enable-lora \
-    --lora-modules perceiver-grpo-v1=training/checkpoints/perceiver-grpo-v1 \
-    --port 8000
+    --lora-modules perceiver-grpo-v2=training/checkpoints/perceiver-grpo-v2 \
+    --port 8001
 
     # LoRA checkpoint (vLLM must be started with --enable-lora --lora-modules perceiver=<path>)
     python -m training.eval_perceiver \
         --data training/data/perceiver_val.jsonl \
         --base_url http://localhost:8000/v1 \
-        --model perceiver-grpo-v2 \
-        --n_dims_hint
+        --model perceiver-grpo-v2
 
     python -m training.eval_perceiver \
         --data training/data/perceiver_val.jsonl \
         --base_url http://localhost:8001/v1 \
-        --model Qwen/Qwen3-4B \
-        --n_dims_hint
+        --model Qwen/Qwen3-4B
 """
 from __future__ import annotations
 
@@ -101,7 +99,7 @@ def evaluate(args: argparse.Namespace) -> None:
     sys.stdout = tee
 
     client = OpenAI(base_url=args.base_url, api_key="EMPTY")
-    dataset = load_dataset(args.data, n_dims_hint=args.n_dims_hint)
+    dataset = load_dataset(args.data)
 
     if args.n_samples and args.n_samples < len(dataset):
         dataset = dataset.select(range(args.n_samples))
@@ -109,7 +107,7 @@ def evaluate(args: argparse.Namespace) -> None:
     n_total = len(dataset)
     print(f"Evaluating {n_total} samples from {args.data} ...")
     print(f"Model: {args.model}  |  temperature={args.temperature}  |  max_tokens={args.max_tokens}")
-    print(f"n_dims_hint: {'ON (GT count injected into prompt)' if args.n_dims_hint else 'OFF'}\n")
+    print()
 
     # Counters
     n_parse_fail = 0
@@ -267,9 +265,6 @@ def main() -> None:
                         help="Output .txt path (default: logs/perceiver_val/eval_<timestamp>.txt)")
     parser.add_argument("--debug_n",     type=int, default=0,
                         help="Print raw output + parsed dims + GT for first N samples (0 disables).")
-    parser.add_argument("--n_dims_hint", action="store_true",
-                        help="Inject the GT dimension count into each prompt. "
-                             "Isolates the 'which dimensions' sub-task from 'how many'.")
     args = parser.parse_args()
     evaluate(args)
 

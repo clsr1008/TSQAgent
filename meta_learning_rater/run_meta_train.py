@@ -35,6 +35,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import time
 from pathlib import Path
 
 import torch
@@ -54,6 +55,12 @@ def set_seed(seed: int = 42) -> None:
 def load_config(config_path: str) -> list[dict]:
     with open(config_path, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def _synchronize_cuda_if_needed(device: str) -> None:
+    """Flush queued CUDA work so the measured interval reflects GPU execution."""
+    if device.startswith("cuda") and torch.cuda.is_available():
+        torch.cuda.synchronize()
 
 
 def train_and_eval(
@@ -86,12 +93,21 @@ def train_and_eval(
 
     print(f"\nMeta-training: {len(task_datasets)} tasks, "
           f"{epochs} epochs, meta_batch={meta_batch_size}")
+
+    # Excludes MOMENT loading/embedding extraction, evaluation, and checkpoint I/O.
+    # CUDA kernels are asynchronous, so synchronize at both boundaries.
+    _synchronize_cuda_if_needed(device)
+    train_start = time.perf_counter()
     learner.meta_train(
         task_datasets,
         meta_batch_size=meta_batch_size,
         data_batch_size=data_batch_size,
         epochs=epochs,
     )
+    _synchronize_cuda_if_needed(device)
+    train_elapsed = time.perf_counter() - train_start
+    print(f"Pure meta-training loop time: {train_elapsed:.2f} s "
+          f"({train_elapsed / 60:.2f} min)")
 
     print("\nEvaluation:")
     acc = learner.evaluate(task_datasets, data_batch_size=data_batch_size)
@@ -99,6 +115,8 @@ def train_and_eval(
 
 
 def main() -> None:
+    # Covers the whole training pipeline after Python/module startup.
+    end_to_end_start = time.perf_counter()
     parser = argparse.ArgumentParser(description="TSRater meta-training")
 
     parser.add_argument("--config", type=str,
@@ -247,6 +265,11 @@ def main() -> None:
         results_path = output_path.parent / "optuna_results.csv"
         study.trials_dataframe().to_csv(results_path, index=False)
         print(f"Optuna results → {results_path}")
+
+    _synchronize_cuda_if_needed(device)
+    end_to_end_elapsed = time.perf_counter() - end_to_end_start
+    print(f"End-to-end pipeline time: {end_to_end_elapsed:.2f} s "
+          f"({end_to_end_elapsed / 60:.2f} min)")
 
 
 if __name__ == "__main__":
