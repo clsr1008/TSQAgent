@@ -57,9 +57,9 @@ pip install -r requirements.txt
 ### Cloud API
 
 ```bash
-export OPENAI_API_KEY="sk-..."
+export OPENAI_API_KEY="<your_api_key>"
 python main.py --model gpt-4o-mini
-# Other supported models: gpt-4o, claude-haiku-20240307, gemini-2.5-flash, etc.
+# Use any model exposed by your configured OpenAI-compatible endpoint.
 ```
 
 ### Local vLLM (Qwen3-4B)
@@ -121,7 +121,8 @@ from workflow import run_pipeline
 cfg = Config(
     model="gpt-4o-mini",
     base_url="https://api.openai.com/v1",
-    api_key="sk-...",
+    api_key="",  # Read OPENAI_API_KEY from the environment.
+    enable_thinking=False,
     max_steps_per_dimension=6,
     max_recheck=2,
     max_replan=1,

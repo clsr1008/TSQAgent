@@ -39,7 +39,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from training.synthesis.base_generator import generate_random_base
 from training.synthesis.defect_injector import inject_defect, _VARIANT_FUNCTIONS, DEFECT_VARIANTS
-from models.llm import OpenAICompatibleLLM, CHATANYWHERE_BASE_URL
+from models.llm import DEFAULT_OPENAI_BASE_URL, OpenAICompatibleLLM
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -706,7 +706,7 @@ ALL_DIMS = list(SWEEP_CONFIGS.keys())
 def main():
     parser = argparse.ArgumentParser(description="Severity calibration experiment")
     parser.add_argument("--model", default="gpt-4o-mini")
-    parser.add_argument("--base_url", default=CHATANYWHERE_BASE_URL)
+    parser.add_argument("--base_url", default=os.environ.get("OPENAI_BASE_URL", DEFAULT_OPENAI_BASE_URL))
     parser.add_argument("--api_key", default="")
     parser.add_argument("--enable_thinking", action="store_true", default=False)
     parser.add_argument("--dim", nargs="+", default=ALL_DIMS,

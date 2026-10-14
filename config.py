@@ -5,7 +5,7 @@ All defaults live in main.py's argparse — Config itself has no hardcoded value
 from __future__ import annotations
 import os
 from dataclasses import dataclass
-from models.llm import BaseLLM, OpenAICompatibleLLM, CHATANYWHERE_BASE_URL
+from models.llm import BaseLLM, OpenAICompatibleLLM
 
 
 @dataclass

@@ -2,9 +2,10 @@
 TSqualityAgent – entry point
 """
 import argparse
+import os
 from dataclasses import asdict
 from config import Config, build_llm, build_perceiver_llm
-from models.llm import CHATANYWHERE_BASE_URL
+from models.llm import DEFAULT_OPENAI_BASE_URL
 from workflow import run_pipeline
 from synthetic_cases import get_cases, CASE_NAMES
 from run_logger import save_run
@@ -29,7 +30,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--base_url",
         type=str,
-        default=CHATANYWHERE_BASE_URL,
+        default=os.environ.get("OPENAI_BASE_URL", DEFAULT_OPENAI_BASE_URL),
         help="OpenAI-compatible API base URL. Use http://localhost:8000/v1 for local vLLM.",
     )
     parser.add_argument(

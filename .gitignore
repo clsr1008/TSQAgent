@@ -1,0 +1,17 @@
+# Credentials and private keys
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+credentials*.json
+secrets*.json
+
+# Local-only project artifacts
+.DS_Store
+.idea/
+training/data/perceiver_train.jsonl
+tools/TOOLS_ZH.md

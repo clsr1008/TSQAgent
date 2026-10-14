@@ -1,8 +1,8 @@
 """
 LLM interface — supports any OpenAI-compatible API endpoint.
 
-Default backend: chatanywhere (cloud, closed-source models).
-Local backend:   vLLM serving Qwen/Qwen3-4B (or any other model) at localhost:8000.
+Default backend: the official OpenAI API endpoint.
+Set OPENAI_BASE_URL to use another OpenAI-compatible endpoint.
 """
 import json
 import os
@@ -11,7 +11,7 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
-CHATANYWHERE_BASE_URL = "https://api.chatanywhere.tech/v1"
+DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
 
 
 @dataclass
@@ -44,7 +44,7 @@ class BaseLLM(ABC):
 class OpenAICompatibleLLM(BaseLLM):
     """
     Works with any OpenAI-compatible endpoint:
-      - Cloud (chatanywhere): base_url=CHATANYWHERE_BASE_URL, api_key from OPENAI_API_KEY
+      - Cloud (OpenAI-compatible): base_url from OPENAI_BASE_URL or the official OpenAI endpoint
       - Local vLLM:           base_url="http://localhost:8000/v1", api_key="EMPTY"
 
     Qwen3 thinking-mode output (<think>...</think>) is automatically stripped
@@ -54,7 +54,7 @@ class OpenAICompatibleLLM(BaseLLM):
     def __init__(
         self,
         model: str = "gpt-4o-mini",
-        base_url: str = CHATANYWHERE_BASE_URL,
+        base_url: str = DEFAULT_OPENAI_BASE_URL,
         api_key: str = "",
         retries: int = 3,
         enable_thinking: bool = False,
@@ -128,7 +128,3 @@ class OpenAICompatibleLLM(BaseLLM):
                 )
         content = self._strip_thinking(msg.content or "")
         return LLMResponse(content=content, tool_calls=tool_calls)
-
-
-# Backward-compatible alias
-ChatanywhereLLM = OpenAICompatibleLLM
