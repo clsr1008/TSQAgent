@@ -14,12 +14,12 @@ Usage:
         --base_url http://localhost:8000/v1 \
         --model Qwen/Qwen3-4B
 
-    CUDA_VISIBLE_DEVICES=2 vllm serve Qwen/Qwen3-4B \
+    vllm serve Qwen/Qwen3-4B \
         --port 8001 \
         --max-model-len 32768
 
     # start LoRA checkpoint
-    CUDA_VISIBLE_DEVICES=2 vllm serve Qwen/Qwen3-4B \
+    vllm serve Qwen/Qwen3-4B \
     --enable-lora \
     --lora-modules perceiver-grpo-v2=training/checkpoints/perceiver-grpo-v2 \
     --port 8001

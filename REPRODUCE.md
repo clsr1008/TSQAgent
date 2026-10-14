@@ -83,7 +83,7 @@ GRPO (Group Relative Policy Optimization) trains the Perceiver on synthetic labe
 ```bash
 # One GPU
 PYTORCH_ALLOC_CONF=expandable_segments:True \
-CUDA_VISIBLE_DEVICES=3 python -m training.rl.train_grpo \
+python -m training.rl.train_grpo \
     --data training/data/perceiver_train_filtered.jsonl \
     --val_data training/data/perceiver_val.jsonl \
     --model Qwen/Qwen3-4B \
@@ -93,7 +93,7 @@ CUDA_VISIBLE_DEVICES=3 python -m training.rl.train_grpo \
 
 # Two GPUs
 PYTORCH_ALLOC_CONF=expandable_segments:True \
-CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node=2 \
+torchrun --nproc_per_node=2 \
     -m training.rl.train_grpo \
         --data training/data/perceiver_train_filtered.jsonl \
         --val_data training/data/perceiver_val.jsonl \
@@ -203,16 +203,16 @@ Prerequisites: `scores.jsonl` is available for each evaluated dataset, and its s
 
 ```bash
 # Long-term forecasting: all datasets, five repetitions, and three models by default.
-CUDA_VISIBLE_DEVICES=3 python -m evaluation.run_eval --task long_term_forecast
+python -m evaluation.run_eval --task long_term_forecast
 
 # Short-term forecasting
-CUDA_VISIBLE_DEVICES=3 python -m evaluation.run_eval --task short_term_forecast
+python -m evaluation.run_eval --task short_term_forecast
 
 # Classification
-CUDA_VISIBLE_DEVICES=3 python -m evaluation.run_eval --task classification
+python -m evaluation.run_eval --task classification
 
 # Quick one-dataset check
-CUDA_VISIBLE_DEVICES=3 python -m evaluation.run_eval \
+python -m evaluation.run_eval \
     --task long_term_forecast --dataset electricity \
     --models Linear --train_epochs 1 --itr 1
 ```

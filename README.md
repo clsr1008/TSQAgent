@@ -1,118 +1,61 @@
-# TSqualityAgent
+# TSQAgent: Dedicated Agentic Reasoning for Time-Series Data Quality
 
-A multi-agent framework for pairwise time series quality assessment. Given two time series segments, the system determines which one is of higher quality and explains why.
+<p align="center">
+  <img src="https://img.shields.io/badge/NeurIPS_2026-Spotlight-f59e0b?style=flat-square" alt="NeurIPS 2026 Spotlight">
+</p>
 
-## System Architecture
+<p align="center">
+  <a href="#quick-start">Quick Start</a> |
+  <a href="REPRODUCE.md">Reproduction</a> |
+  <a href="#citation">Citation</a>
+</p>
 
-```
-Input (series_A, series_B, dataset_description)
-        │
-        ▼
-  Perceiver  (Perception & Planning)
-  └─ Analyzes basic statistics of both series, selects relevant quality dimensions
-        │
-        ▼
-  Inspector  (Detection & Reasoning)
-  └─ Runs Thought → Tool Call → Observation loops per dimension
-        │
-        ▼
-  Adjudicator  (Aggregation & Reflection)
-  └─ Produces final verdict; triggers re-check or re-plan if uncertain
-        │
-   ┌────┴────┐
-   │         │
-needs_recheck  needs_replan
-   │         │
-Inspector  Perceiver  (capped iterations)
-        │
-        ▼
-  Output: { winner, confidence, explanation }
+> **TL;DR.** TSQAgent identifies the quality dimensions that matter, grounds pairwise time-series judgments in quantitative evidence, and converts those judgments into interpretable, quality-aware data selection.
+
+## Why TSQAgent?
+
+Time-series quality is multi-dimensional: missing values, noise, rare patterns, and structural changes can matter differently for every pair and downstream task. TSQAgent addresses this with three specialized agents and a dedicated benchmark, **TSQBench**, for measuring both relevant-dimension identification and evidence-grounded quality comparison.
+
+```mermaid
+flowchart LR
+    A[Pair of time-series blocks] --> P["Perceiver<br/>Select relevant dimensions"]
+    P --> I["Inspector<br/>Measure quantitative evidence"]
+    I --> J["Adjudicator<br/>Aggregate and reflect"]
+    J --> R[Interpretable pairwise judgment]
+    R --> M["Quality rater and<br/>data-aware selection"]
 ```
 
-## Quality Dimensions
+## Highlights
 
-| Category | Dimension | Primary Tools | Auxiliary Tools |
-|----------|-----------|--------------|-----------------|
-| Bad quality | `missing_value` | `missing_ratio` | — |
-| Bad quality | `noise_level` | `noise_profile`, `volatility` | `range_stats` |
-| Rare pattern (Cat-1) | `rare_pattern` | `mad_residual_outlier`, `zscore_outlier`, `outlier_density` | — |
-| Rare pattern (Cat-2) | `rare_pattern` | `contextual_rare_pattern` | — |
-| Pattern structure | `trend` | `trend_classifier` | `change_point_detector`, `range_stats`, `stationarity_test` |
-| Pattern structure | `frequency` | `seasonality_detector` | `autocorr` |
-| Pattern structure | `amplitude` | `cycle_amplitude`, `rolling_amplitude` | `change_point_detector` |
-| Pattern structure | `pattern_consistency` | `pattern_consistency_indicators` | `stationarity_test`, `change_point_detector` |
+- **🧠 Reasoning-driven planning.** A GRPO-trained Perceiver focuses the analysis on the quality dimensions that are actually relevant to each pair.
+- **📊 Tool-grounded inspection.** The Inspector combines LLM reasoning with statistical tools for missingness, noise, outliers, trends, frequency, amplitude, and pattern consistency.
+- **⚖️ Interpretable decisions.** The Adjudicator returns a winner, confidence, and dimension-level evidence, with re-checking and re-planning when needed.
+- **🎯 From judgments to better data.** Pairwise preferences train a lightweight rater for ranking samples and selecting higher-quality data for downstream tasks.
 
-> Full tool documentation: [TOOLS.md](TOOLS.md)
+## Results at a Glance
 
-## Installation
+| Capability on TSQBench | Without the proposed component | With TSQAgent component |
+| --- | ---: | ---: |
+| Relevant-dimension identification precision | 33-38% | 59-61% with GRPO planning |
+| Dimension-wise quality comparison accuracy | 55-61% | 78-84% with analytical tools |
+| Real-world evaluation | - | Quality-aware selection across 11 datasets |
+
+The paper further shows that quality-aware selection transfers these stronger judgments into improved downstream forecasting and classification under a fixed data budget.
+
+## Quick Start
 
 ```bash
 conda create -n tsquality python=3.11 -y
 conda activate tsquality
 pip install -r requirements.txt
-```
 
-## LLM Configuration
-
-### Cloud API
-
-```bash
 export OPENAI_API_KEY="<your_api_key>"
-python main.py --model gpt-4o-mini
-# Use any model exposed by your configured OpenAI-compatible endpoint.
+python main.py --model gpt-4o-mini --case noise
 ```
 
-### Local vLLM (Qwen3-4B)
+The command runs a built-in pairwise quality comparison and writes an HTML report with the reasoning trace. To use a local OpenAI-compatible server, train the Perceiver, annotate datasets, train a rater, or reproduce the paper's evaluations, follow the [reproduction guide](REPRODUCE.md).
 
-Launch the base model server (Inspector requires tool-call support):
-
-```bash
-CUDA_VISIBLE_DEVICES=3 vllm serve Qwen/Qwen3-4B \
-    --port 8000 \
-    --enable-auto-tool-choice \
-    --tool-call-parser hermes \
-    --max-model-len 32768
-```
-
-Launch the fine-tuned Perceiver with LoRA adapter (port 8001):
-
-```bash
-CUDA_VISIBLE_DEVICES=3 vllm serve Qwen/Qwen3-4B \
-    --enable-lora \
-    --lora-modules perceiver-grpo-v2=training/checkpoints/perceiver-grpo-v2 \
-    --port 8001 \
-    --max-model-len 32768
-```
-
-## Running Inference
-
-```bash
-# Run all built-in test cases (cloud mode)
-python main.py
-
-# Run a specific case
-python main.py --case rare_point
-
-# Run multiple cases
-python main.py --case rare_point rare_contextual
-
-# Local Qwen3-4B with fine-tuned Perceiver
-python main.py \
-    --model Qwen/Qwen3-4B \
-    --base_url http://localhost:8000/v1 \
-    --api_key EMPTY \
-    --perceiver_model perceiver-grpo-v2 \
-    --perceiver_base_url http://localhost:8001/v1
-
-# Adjust Inspector reasoning budget
-python main.py --max_steps 8 --max_recheck 3 --max_replan 2
-```
-
-Available case names: `missing` / `noise` / `rare_point` / `rare_contextual` / `trend` / `frequency` / `amplitude` / `pattern` / `all`
-
-Each run produces an HTML report with the full reasoning chain.
-
-## Custom Input
+## Using TSQAgent
 
 ```python
 from config import Config, build_llm
@@ -127,63 +70,53 @@ cfg = Config(
     max_recheck=2,
     max_replan=1,
 )
-llm = build_llm(cfg)
 
 result = run_pipeline(
     input_data={
-        "dataset_description": "Industrial temperature sensor, 1-min sampling, 120 steps",
-        "series_A": [...],       # list[float], NaN supported
+        "dataset_description": "Industrial temperature sensor, 1-min sampling",
+        "series_A": [...],
         "series_B": [...],
-        "timestamps": [...],     # optional
-        "external_variables": {},  # optional
+        "timestamps": [...],
     },
-    llm=llm,
+    llm=build_llm(cfg),
     config=cfg,
 )
 
 print(result["winner"])       # "A" | "B" | "tie"
-print(result["confidence"])   # 0.0 – 1.0
-print(result["explanation"])  # full reasoning summary
+print(result["confidence"])   # 0.0 - 1.0
+print(result["explanation"])  # dimension-level evidence
 ```
 
-## Training Pipeline
+## Reproducibility
 
-The Perceiver agent is fine-tuned with GRPO reinforcement learning. The full pipeline:
+The full research pipeline is documented in [REPRODUCE.md](REPRODUCE.md):
 
-```
-Step 1  training/synthesis/    Synthesize labeled training data (defect injection)
-Step 2  training/rl/           GRPO fine-tuning of Perceiver (LoRA on Qwen3-4B)
-Step 3  annotation/            Pairwise annotation of 23 datasets using the trained agent
-Step 4  meta_learning_rater/   Train TSRater scoring model (MAML or per-dataset)
-Step 5  evaluation/            Data selection experiments to validate scoring quality
-```
+1. Generate synthetic TSQBench-style training pairs.
+2. Fine-tune the Perceiver with quality-tailored GRPO.
+3. Collect pairwise judgments over real-world datasets.
+4. Train a dataset-specific or meta-learning quality rater.
+5. Run data-selection experiments for forecasting and classification.
 
-See [REPRODUCE.md](REPRODUCE.md) for detailed commands for each step.
+## Repository Map
 
-## Project Structure
+| Directory | Purpose |
+| --- | --- |
+| `agents/` | Perceiver, Inspector, and Adjudicator workflow |
+| `tools/` | Statistical tools used for evidence collection |
+| `training/` | Synthetic data construction and Perceiver GRPO training |
+| `annotation/` | Pairwise quality annotation workflows |
+| `meta_learning_rater/` | Dataset-specific and cross-dataset quality raters |
+| `evaluation/` | Downstream forecasting and classification experiments |
 
-```
-TSqualityAgent/
-├── main.py                     # Entry point
-├── workflow.py                 # LangGraph pipeline
-├── config.py                   # Global configuration
-├── synthetic_cases.py          # Built-in test case generator & visualizer
-├── requirements.txt
-├── agents/
-│   ├── perceiver.py            # Agent 1: perception & dimension selection
-│   ├── inspector.py            # Agent 2: ReAct tool-calling loops
-│   └── adjudicator.py          # Agent 3: aggregation & reflection
-├── models/
-│   ├── state.py                # AgentState definition
-│   └── llm.py                  # LLM abstraction layer
-├── tools/
-│   ├── bad_quality.py          # Missing value & noise tools
-│   ├── rare_pattern.py         # Outlier detection tools
-│   └── pattern_structure.py    # Trend, frequency, amplitude, consistency tools
-├── training/
-│   ├── synthesis/              # Defect injection & dataset generation
-│   └── rl/                     # GRPO training script & reward functions
-├── annotation/                 # Pairwise annotation pipeline (23 datasets)
-├── meta_learning_rater/        # TSRater: MAML meta-learning & per-dataset rater
-└── evaluation/                 # Downstream forecasting & classification experiments
+## Citation
+
+If TSQAgent or TSQBench is useful for your research, please cite:
+
+```bibtex
+@inproceedings{wu2026tsqagent,
+  title={TSQAgent: Rating Time Series Data Quality via Dedicated Agentic Reasoning},
+  author={Wu, Shunyu and Li, Dan and Ye, Haozheng and Feng, Weibin and Lou, Jian and Zhang, Bo and Feng, Wenjie and Guo, Chenjuan and Ng, See-Kiong},
+  booktitle={Advances in Neural Information Processing Systems},
+  year={2026}
+}
 ```

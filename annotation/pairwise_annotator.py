@@ -17,7 +17,7 @@ from models.llm import BaseLLM
 
 
 def _compact_dimension_results(dimension_results: list[dict]) -> list[dict]:
-    """Keep the structured Inspector outputs needed for later audit.
+    """Keep the structured Inspector outputs needed for downstream analysis.
 
     The full ``messages`` field contains the entire ReAct conversation (including
     repeated previews and tool observations) and is prohibitively large for a

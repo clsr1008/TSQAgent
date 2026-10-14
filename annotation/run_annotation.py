@@ -5,8 +5,8 @@ Loads a dataset's blocks.jsonl, samples random pairs, runs the agent pipeline
 on each pair, and writes high-confidence results to an output JSONL file.
 
 Target: 500 valid pairs per dataset.  The optional significance report stores
-the Perceiver plan and counts how often it selects each dimension for rebuttal
-analysis.
+the Perceiver plan and counts how often it selects each dimension for
+downstream analysis.
 For small datasets where C(N,2) < 500, we use all possible pairs as the budget.
 
 Confidence filter: |2*comparisons_avg - 1| >= 0.5
@@ -25,97 +25,17 @@ python -m annotation.run_annotation \
     --perceiver_base_url http://localhost:8001/v1 \
     --n_valid 20
 
-CUDA_VISIBLE_DEVICES=4 vllm serve Qwen/Qwen3-4B \
+vllm serve Qwen/Qwen3-4B \
   --port 8000 \
   --enable-auto-tool-choice \
   --tool-call-parser hermes \
   --max-model-len 32768
 
-CUDA_VISIBLE_DEVICES=5 vllm serve Qwen/Qwen3-4B \
+vllm serve Qwen/Qwen3-4B \
   --enable-lora \
   --lora-modules perceiver-grpo-v2=training/checkpoints/perceiver-grpo-v2 \
   --port 8001 \
   --max-model-len 32768
-
-# Rebuttal audit: use a NEW output file because existing annotation.jsonl does
-# not contain Perceiver/Inspector states.  This also writes a CSV beside the
-# requested JSON report.
-python -m annotation.run_annotation \
-    --dataset datasets/electricity/blocks.jsonl \
-    --output datasets/electricity/annotation_significance.jsonl \
-    --dataset_description "Electricity load time series for downstream forecasting; assess data quality differences relevant to forecasting." \
-    --model Qwen/Qwen3-4B \
-    --base_url http://localhost:8000/v1 \
-    --perceiver_model perceiver-grpo-v2 \
-    --perceiver_base_url http://localhost:8001/v1 \
-    --n_valid 300 \
-    --significance_report results/electricity_dimension_significance.json
-
-# Real telemetry rebuttal: label-blind normal-vs-anomaly evaluation plus
-# independent reference-based weak labels for Perceiver and Inspector.
-# The default random channel selection is the conservative primary framework
-# evaluation. Run a separate output with --reference_eval_channel_selection
-# max_reference_evidence for the diagnostic Perceiver/Inspector study.
-python -m annotation.run_annotation \
-    --reference_eval_test_data datasets/MSL/MSL_test.npy \
-    --reference_eval_labels datasets/MSL/MSL_test_label.npy \
-    --reference_eval_reference_data datasets/MSL/MSL_train.npy \
-    --reference_eval_output datasets/MSL/reference_eval_pairs.jsonl \
-    --reference_eval_report results/MSL_reference_eval.json \
-    --reference_eval_pairs 100 \
-    --reference_eval_window_size 100 --reference_eval_stride 100 \
-    --reference_eval_guard_size 100 --reference_eval_anomaly_min_fraction 0.50 \
-    --model Qwen/Qwen3-4B --base_url http://localhost:8000/v1 \
-    --perceiver_model perceiver-grpo-v2 --perceiver_base_url http://localhost:8001/v1
-
-# SWaT preparation first creates finite, held-out normal windows and preserves
-# every source timestamp gap through segment IDs.  Do not evaluate directly on
-# the raw CSVs or on a normal+attack concatenation.
-python -m annotation.preprocess_swat \
-    --normal_csv datasets/SWaT/normal.csv \
-    --attack_csv datasets/SWaT/attack.csv \
-    --output_dir datasets/SWaT/preprocessed
-
-# SWaT primary framework evaluation (random channels; labels stay hidden).
-python -m annotation.run_annotation \
-    --reference_eval_test_data datasets/SWaT/preprocessed/SWaT_test.npy \
-    --reference_eval_labels datasets/SWaT/preprocessed/SWaT_test_labels.npy \
-    --reference_eval_test_segments datasets/SWaT/preprocessed/SWaT_test_segments.npy \
-    --reference_eval_reference_data datasets/SWaT/preprocessed/SWaT_reference.npy \
-    --reference_eval_reference_segments datasets/SWaT/preprocessed/SWaT_reference_segments.npy \
-    --reference_eval_output datasets/SWaT/swat_framework_random.jsonl \
-    --reference_eval_report results/SWaT_framework_random.json \
-    --reference_eval_pairs 100 --reference_eval_window_size 100 \
-    --reference_eval_stride 100 --reference_eval_guard_size 100 \
-    --reference_eval_anomaly_min_fraction 0.50 \
-    --reference_eval_channel_selection random \
-    --dataset_description "Single-channel windows from a real industrial water-treatment telemetry system; assess observable time-series quality for reliable monitoring and downstream forecasting." \
-    --model Qwen/Qwen3-4B --base_url http://localhost:8000/v1 \
-    --perceiver_model perceiver-grpo-v2 --perceiver_base_url http://localhost:8001/v1
-
-# WADI uses a separate normal-only reference recording and a labelled test
-# recording (1=normal, -1=attack).  Its Row IDs, rather than Date/Time text,
-# define continuous segments.
-python -m annotation.preprocess_wadi \
-    --normal_csv datasets/WADI/WADI_14days_new.csv \
-    --attack_csv datasets/WADI/WADI_attackdataLABLE.csv \
-    --output_dir datasets/WADI/preprocessed
-
-python -m annotation.run_annotation \
-    --reference_eval_test_data datasets/WADI/preprocessed/WADI_test.npy \
-    --reference_eval_labels datasets/WADI/preprocessed/WADI_test_labels.npy \
-    --reference_eval_test_segments datasets/WADI/preprocessed/WADI_test_segments.npy \
-    --reference_eval_reference_data datasets/WADI/preprocessed/WADI_reference.npy \
-    --reference_eval_reference_segments datasets/WADI/preprocessed/WADI_reference_segments.npy \
-    --reference_eval_output datasets/WADI/wadi_framework_random.jsonl \
-    --reference_eval_report results/WADI_framework_random.json \
-    --reference_eval_pairs 100 --reference_eval_window_size 100 \
-    --reference_eval_stride 100 --reference_eval_guard_size 100 \
-    --reference_eval_anomaly_min_fraction 0.50 \
-    --reference_eval_channel_selection random \
-    --dataset_description "Single-channel windows from a real industrial water-distribution telemetry system; assess observable time-series quality for reliable monitoring and downstream forecasting." \
-    --model Qwen/Qwen3-4B --base_url http://localhost:8000/v1 \
-    --perceiver_model perceiver-grpo-v2 --perceiver_base_url http://localhost:8001/v1
 
 # Batch: annotate all datasets listed in a config file
 python -m annotation.run_annotation \

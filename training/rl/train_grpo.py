@@ -4,7 +4,7 @@ GRPO fine-tuning for the Perceiver agent.
 Usage
 -----
 # Debug run (test.jsonl, 20 samples, 1 epoch)
-CUDA_VISIBLE_DEVICES=3 python -m training.rl.train_grpo \
+python -m training.rl.train_grpo \
     --data training/data/test.jsonl \
     --model Qwen/Qwen3-4B \
     --output training/checkpoints/perceiver-grpo-debug \
@@ -12,7 +12,7 @@ CUDA_VISIBLE_DEVICES=3 python -m training.rl.train_grpo \
 
 # Full training (hint-filtered dataset) — single GPU
 PYTORCH_ALLOC_CONF=expandable_segments:True \
-CUDA_VISIBLE_DEVICES=1 python -m training.rl.train_grpo \
+python -m training.rl.train_grpo \
     --data training/data/perceiver_train_filtered.jsonl \
     --val_data training/data/perceiver_val.jsonl \
     --model Qwen/Qwen3-4B \
@@ -24,7 +24,7 @@ CUDA_VISIBLE_DEVICES=1 python -m training.rl.train_grpo \
 
 # Full training — dual GPU (DDP, 4B fits per card; halve accum steps since global batch doubles)
 PYTORCH_ALLOC_CONF=expandable_segments:True \
-CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node=2 \
+torchrun --nproc_per_node=2 \
     -m training.rl.train_grpo \
         --data training/data/perceiver_train_filtered.jsonl \
         --val_data training/data/perceiver_val.jsonl \
@@ -37,7 +37,7 @@ CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node=2 \
 
 # Resume from existing LoRA (warm restart — loads adapter weights, resets optimizer)
 PYTORCH_ALLOC_CONF=expandable_segments:True \
-CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node=2 \
+torchrun --nproc_per_node=2 \
     -m training.rl.train_grpo \
         --data training/data/perceiver_train_filtered.jsonl \
         --val_data training/data/perceiver_val.jsonl \

@@ -59,13 +59,13 @@ python -m training.eval_comparison \
 python -m training.eval_comparison ... --no_tools --debug_n 3
 
 vLLM deployment (tool support required for --with_tools):
-    CUDA_VISIBLE_DEVICES=2 vllm serve Qwen/Qwen3-4B \
+    vllm serve Qwen/Qwen3-4B \
         --port 8001 \
         --enable-auto-tool-choice \
         --tool-call-parser hermes \
         --max-model-len 32768
 
-    CUDA_VISIBLE_DEVICES=0 vllm serve Qwen/Qwen3-8B \
+    vllm serve Qwen/Qwen3-8B \
         --port 8002 \
         --enable-auto-tool-choice \
         --tool-call-parser hermes \
