@@ -25,7 +25,7 @@ Its core capabilities are:
 
 ## TSQBench
 
-TSQBench is a controlled synthetic benchmark for evaluating time-series quality reasoning. Each pair begins with a shared template and receives dimension-specific degradations, yielding interpretable quality differences across seven dimensions: missing values, noise level, rare patterns, trend, frequency, amplitude, and pattern consistency. It evaluates whether a model identifies the relevant dimensions and correctly compares quality within each dimension. See the [TSQBench code](benchmark/) for generation and evaluation scripts.
+TSQBench is a controlled synthetic benchmark for evaluating time-series quality reasoning. Each pair begins with a shared template and receives dimension-specific degradations, yielding interpretable quality differences across seven dimensions: missing values, noise level, rare patterns, trend, frequency, amplitude, and pattern consistency. It evaluates whether a model identifies the relevant dimensions and correctly compares quality within each dimension. See the [TSQBench data-generation code](training/synthesis/) and [training pipeline](training/) for the generation and evaluation scripts.
 
 ## Results at a Glance
 
