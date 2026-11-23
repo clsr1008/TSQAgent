@@ -1,4 +1,4 @@
-# TSqualityAgent Reproduction Guide
+# TSQAgent Reproduction Guide
 
 This document introduces the system modules and their common commands for collaborators who continue the experiments. For additional parameters and advanced options, see the `Usage` section at the top of the relevant script. Use the documented defaults unless a change is necessary and understood.
 

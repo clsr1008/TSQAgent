@@ -1,46 +1,39 @@
 # TSQAgent: Dedicated Agentic Reasoning for Time-Series Data Quality
 
 <p align="center">
-  <img src="https://img.shields.io/badge/NeurIPS_2026-Spotlight-f59e0b?style=flat-square" alt="NeurIPS 2026 Spotlight">
-</p>
-
-<p align="center">
   <a href="#quick-start">Quick Start</a> |
   <a href="REPRODUCE.md">Reproduction</a> |
   <a href="#citation">Citation</a>
 </p>
 
-> **TL;DR.** TSQAgent identifies the quality dimensions that matter, grounds pairwise time-series judgments in quantitative evidence, and converts those judgments into interpretable, quality-aware data selection.
+> 🔥 **2026.09** — TSQAgent was accepted to NeurIPS 2026 as a Spotlight paper.
 
-## Why TSQAgent?
+## TSQAgent
 
-Time-series quality is multi-dimensional: missing values, noise, rare patterns, and structural changes can matter differently for every pair and downstream task. TSQAgent addresses this with three specialized agents and a dedicated benchmark, **TSQBench**, for measuring both relevant-dimension identification and evidence-grounded quality comparison.
+TSQAgent is a multi-agent framework for pairwise time-series data-quality assessment. Given two time-series blocks and their dataset context, it identifies the quality dimensions relevant to the comparison, gathers quantitative evidence, and returns an interpretable judgment of which series has higher overall quality. These pairwise judgments can then be converted into data-quality scores for ranking samples and selecting higher-quality training data.
 
-```mermaid
-flowchart LR
-    A[Pair of time-series blocks] --> P["Perceiver<br/>Select relevant dimensions"]
-    P --> I["Inspector<br/>Measure quantitative evidence"]
-    I --> J["Adjudicator<br/>Aggregate and reflect"]
-    J --> R[Interpretable pairwise judgment]
-    R --> M["Quality rater and<br/>data-aware selection"]
-```
+<p align="center">
+  <img src="assets/framework.png" alt="TSQAgent framework" width="100%">
+</p>
 
-## Highlights
+Its core capabilities are:
 
 - **🧠 Reasoning-driven planning.** A GRPO-trained Perceiver focuses the analysis on the quality dimensions that are actually relevant to each pair.
 - **📊 Tool-grounded inspection.** The Inspector combines LLM reasoning with statistical tools for missingness, noise, outliers, trends, frequency, amplitude, and pattern consistency.
 - **⚖️ Interpretable decisions.** The Adjudicator returns a winner, confidence, and dimension-level evidence, with re-checking and re-planning when needed.
 - **🎯 From judgments to better data.** Pairwise preferences train a lightweight rater for ranking samples and selecting higher-quality data for downstream tasks.
 
+## TSQBench
+
+TSQBench is a controlled synthetic benchmark for evaluating time-series quality reasoning. Each pair begins with a shared template and receives dimension-specific degradations, yielding interpretable quality differences across seven dimensions: missing values, noise level, rare patterns, trend, frequency, amplitude, and pattern consistency. It evaluates whether a model identifies the relevant dimensions and correctly compares quality within each dimension. See the [TSQBench code](benchmark/) for generation and evaluation scripts.
+
 ## Results at a Glance
 
-| Capability on TSQBench | Without the proposed component | With TSQAgent component |
-| --- | ---: | ---: |
-| Relevant-dimension identification precision | 33-38% | 59-61% with GRPO planning |
-| Dimension-wise quality comparison accuracy | 55-61% | 78-84% with analytical tools |
-| Real-world evaluation | - | Quality-aware selection across 11 datasets |
+We evaluate quality-aware data selection on 11 real-world datasets across long-term forecasting, short-term forecasting, and classification. Each method scores the training samples, selects the top 50% to train a downstream model (Linear, CNN, or PatchTST), and is evaluated on a held-out test set over 10 random seeds. The chart summarizes TSQAgent's ranking across 33 dataset-model settings: dark blue denotes Rank 1, light blue denotes Rank 2, and TSQAgent places in the top two for 31 settings.
 
-The paper further shows that quality-aware selection transfers these stronger judgments into improved downstream forecasting and classification under a fixed data budget.
+<p align="center">
+  <img src="assets/TSQAgent_Rank12.png" alt="TSQAgent ranking results across downstream settings" width="100%">
+</p>
 
 ## Quick Start
 
