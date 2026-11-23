@@ -106,10 +106,10 @@ The full research pipeline is documented in [REPRODUCE.md](REPRODUCE.md):
 If TSQAgent or TSQBench is useful for your research, please cite:
 
 ```bibtex
-@inproceedings{wu2026tsqagent,
+@article{wu2026tsqagent,
   title={TSQAgent: Rating Time Series Data Quality via Dedicated Agentic Reasoning},
   author={Wu, Shunyu and Li, Dan and Ye, Haozheng and Feng, Weibin and Lou, Jian and Zhang, Bo and Feng, Wenjie and Guo, Chenjuan and Ng, See-Kiong},
-  booktitle={Advances in Neural Information Processing Systems},
+  journal={arXiv preprint arXiv:2606.03629},
   year={2026}
 }
 ```
